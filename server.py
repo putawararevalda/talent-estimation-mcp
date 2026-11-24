@@ -265,20 +265,28 @@ async def export_validation_excel(run_id: str, save_path: Optional[str] = None) 
 
 
 def build_app():
-    """Builds Starlette application with MCP SSE endpoints and health probes."""
-    app = mcp.sse_app()
+    """Builds Starlette application supporting both Streamable HTTP (/mcp) and SSE (/sse)."""
+    # 1. Base app with Streamable HTTP (/mcp) and session lifecycle manager
+    app = mcp.streamable_http_app()
 
+    # 2. Append legacy SSE endpoints (/sse and /messages)
+    sse_app = mcp.sse_app()
+    for route in sse_app.routes:
+        app.routes.append(route)
+
+    # 3. Informational and health probe endpoints
     async def root_handler(request):
         return JSONResponse({
             "service": "talent-estimation-mcp",
             "status": "running",
-            "transport": "SSE",
+            "transports": ["Streamable HTTP (/mcp)", "SSE (/sse)"],
             "endpoints": {
+                "mcp": "/mcp",
                 "sse": "/sse",
                 "messages": "/messages",
                 "health": "/health",
             },
-            "docs": "Connect using any MCP-compatible client with SSE URL.",
+            "docs": "For Streamable HTTP clients (Agona, etc.), connect to /mcp. For SSE clients, connect to /sse.",
         })
 
     async def health_handler(request):
