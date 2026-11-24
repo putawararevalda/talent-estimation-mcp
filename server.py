@@ -264,6 +264,44 @@ async def export_validation_excel(run_id: str, save_path: Optional[str] = None) 
         return {"error": f"Excel export failed: {str(e)}"}
 
 
+class LenientHeadersMiddleware:
+    """Ensures compatibility with clients (like Agona) that omit or send partial Content-Type/Accept headers."""
+
+    def __init__(self, asgi_app):
+        self.asgi_app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            method = scope.get("method", "GET")
+            path = scope.get("path", "")
+
+            # Normalize paths: allow POST to / or /mcp/ to reach /mcp
+            if method == "POST" and path in ("/", "/mcp/"):
+                scope["path"] = "/mcp"
+
+            # Normalize /messages trailing slash to prevent 307 redirects
+            if method == "POST" and path == "/messages":
+                scope["path"] = "/messages/"
+
+            headers = dict(scope.get("headers", []))
+
+            # Default Content-Type to application/json on POST if missing or generic
+            if method == "POST":
+                ct = headers.get(b"content-type", b"").lower()
+                if not ct or ct in (b"*/*", b"application/octet-stream", b"text/plain"):
+                    scope["headers"] = [(k, v) for k, v in scope["headers"] if k != b"content-type"]
+                    scope["headers"].append((b"content-type", b"application/json"))
+
+            # Ensure Accept header includes both application/json and text/event-stream for Streamable HTTP
+            accept = headers.get(b"accept", b"").lower()
+            if b"text/event-stream" not in accept or b"application/json" not in accept:
+                new_accept = accept + (b", " if accept else b"") + b"application/json, text/event-stream"
+                scope["headers"] = [(k, v) for k, v in scope["headers"] if k != b"accept"]
+                scope["headers"].append((b"accept", new_accept))
+
+        await self.asgi_app(scope, receive, send)
+
+
 def build_app():
     """Builds Starlette application supporting both Streamable HTTP (/mcp) and SSE (/sse)."""
     # 1. Base app with Streamable HTTP (/mcp) and session lifecycle manager
@@ -294,7 +332,7 @@ def build_app():
 
     app.routes.append(Route("/", root_handler, methods=["GET"]))
     app.routes.append(Route("/health", health_handler, methods=["GET"]))
-    return app
+    return LenientHeadersMiddleware(app)
 
 
 if __name__ == "__main__":
