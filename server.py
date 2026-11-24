@@ -7,13 +7,14 @@ FTE sizing (Use Case Points and Bottom-Up), capability matching, and AI augmenta
 from __future__ import annotations
 
 import argparse
+import base64
 import os
 import sys
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Route
 import uvicorn
 
@@ -247,9 +248,12 @@ async def recalculate_plan(
 async def export_validation_excel(run_id: str, save_path: Optional[str] = None) -> Dict[str, Any]:
     """Export the validation workbook (.xlsx) for an existing estimation run.
 
+    Provides a direct download URL, local file path, and Base64-encoded bytes so remote
+    MCP clients (like Agona) can easily download or save the file directly.
+
     Args:
         run_id: The run identifier returned from `estimate_wbs`.
-        save_path: Optional absolute destination path on the host. If omitted, saves to current directory.
+        save_path: Optional destination path on the host. If omitted, saves to 'downloads/'.
     """
     cached_run = run_cache.get(run_id)
     if not cached_run:
@@ -257,14 +261,31 @@ async def export_validation_excel(run_id: str, save_path: Optional[str] = None) 
 
     try:
         excel_bytes = await client.export_excel(cached_run)
-        file_path = save_path or f"aix_validation_{run_id}.xlsx"
+        filename = f"aix_validation_{run_id}.xlsx"
+        os.makedirs("downloads", exist_ok=True)
+        file_path = save_path or os.path.join("downloads", filename)
         with open(file_path, "wb") as f:
             f.write(excel_bytes)
+
+        # Public download URL for remote clients like Agona
+        public_url = (os.getenv("PUBLIC_URL") or "https://95id5-talent-estimation-mcp.labs.playdev.online").rstrip("/")
+        download_url = f"{public_url}/downloads/{filename}"
+
+        # Base64 string for direct file creation without network download
+        b64_content = base64.b64encode(excel_bytes).decode("ascii")
+
         return {
             "status": "success",
             "run_id": run_id,
-            "saved_file": os.path.abspath(file_path),
+            "filename": filename,
+            "download_url": download_url,
             "size_bytes": len(excel_bytes),
+            "file_base64": b64_content,
+            "saved_file": os.path.abspath(file_path),
+            "instructions": (
+                f"File ready! Provide download link to user: {download_url}. "
+                "Or write directly to output using base64: base64.b64decode(file_base64)"
+            ),
         }
     except Exception as e:
         return {"error": f"Excel export failed: {str(e)}"}
@@ -336,8 +357,22 @@ def build_app():
     async def health_handler(request):
         return JSONResponse({"status": "healthy"})
 
+    async def download_handler(request):
+        filename = request.path_params.get("filename", "")
+        filepath = os.path.join("downloads", filename)
+        if not os.path.exists(filepath):
+            filepath = filename
+        if os.path.exists(filepath):
+            return FileResponse(
+                filepath,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                filename=filename,
+            )
+        return JSONResponse({"error": "File not found"}, status_code=404)
+
     app.routes.append(Route("/", root_handler, methods=["GET"]))
     app.routes.append(Route("/health", health_handler, methods=["GET"]))
+    app.routes.append(Route("/downloads/{filename}", download_handler, methods=["GET"]))
     return LenientHeadersMiddleware(app)
 
 
