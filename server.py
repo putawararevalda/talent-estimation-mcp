@@ -26,6 +26,9 @@ load_dotenv()
 mcp = FastMCP("talent-estimation-mcp")
 # Allow public cloud hostnames (disable local-only DNS rebinding filter)
 mcp.settings.transport_security.enable_dns_rebinding_protection = False
+# Enable stateless HTTP for modern MCP clients like Agona (matches ndeserver fix 4ffee1b)
+mcp.settings.stateless_http = True
+mcp.settings.json_response = True
 client = AIXClient()
 
 
