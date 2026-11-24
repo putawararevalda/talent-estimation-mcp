@@ -24,6 +24,8 @@ load_dotenv()
 
 # Initialize FastMCP Server
 mcp = FastMCP("talent-estimation-mcp")
+# Allow public cloud hostnames (disable local-only DNS rebinding filter)
+mcp.settings.transport_security.enable_dns_rebinding_protection = False
 client = AIXClient()
 
 
