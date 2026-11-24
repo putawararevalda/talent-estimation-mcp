@@ -97,7 +97,8 @@ async def estimate_wbs(
     tolerance: float = 0.15,
     requested_fte: Optional[Dict[str, float]] = None,
     existing_fte: Optional[Dict[str, float]] = None,
-    use_demo: bool = False,
+    use_demo: bool = True,
+    api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute talent and workload estimation on a Work Breakdown Structure (WBS).
 
@@ -106,7 +107,7 @@ async def estimate_wbs(
 
     Args:
         project_name: Name of the project or initiative.
-        tasks: List of task objects with fields: 'name' or 'item', 'description', 'role', 'workdays'.
+        tasks: Optional list of task objects with fields: 'name' or 'item', 'description', 'role', 'workdays'.
         tasks_csv: Optional raw CSV string of WBS items.
         scope: Target scope ('data', 'design', or 'all').
         hours_per_day: Work hours per day (default: 8.0).
@@ -116,7 +117,8 @@ async def estimate_wbs(
         tolerance: Discrepancy tolerance between UCP and BU (default: 0.15 / 15%).
         requested_fte: Map of role codes to requested FTEs, e.g. {"DE": 1.0, "DS": 1.0}.
         existing_fte: Map of role codes to existing headcount, e.g. {"DA": 0.5}.
-        use_demo: Set to True to run with built-in standard demo WBS.
+        use_demo: Set to True for standard demo WBS or zero-key rule-based estimation (default: True).
+        api_key: Optional Gemini/LLM API key for full custom LLM classification.
 
     Returns:
         Structured estimation findings, comparison table, message draft, and a `run_id` for refinements.
@@ -135,6 +137,7 @@ async def estimate_wbs(
             requested_fte=requested_fte,
             existing_fte=existing_fte,
             use_demo=use_demo,
+            api_key=api_key,
         )
 
         # Store in cache

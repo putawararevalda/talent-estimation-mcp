@@ -18,13 +18,15 @@ class AIXClient:
         self,
         base_url: Optional[str] = None,
         cookie: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self.base_url = (base_url or os.getenv("AIX_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
         self.cookie = cookie or os.getenv("AIX_SESSION_COOKIE") or ""
+        self.llm_api_key = llm_api_key or os.getenv("AIX_LLM_API_KEY") or os.getenv("GEMINI_API_KEY") or ""
         self.timeout = timeout
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self, api_key: Optional[str] = None) -> Dict[str, str]:
         headers = {
             "Accept": "*/*",
             "Accept-Language": "en-US,en;q=0.9",
@@ -34,6 +36,9 @@ class AIXClient:
         }
         if self.cookie:
             headers["Cookie"] = self.cookie
+        key = api_key or self.llm_api_key
+        if key:
+            headers["x-llm-api-key"] = key
         return headers
 
     async def check_health(self) -> Dict[str, Any]:
@@ -65,13 +70,22 @@ class AIXClient:
         tolerance: float = 0.15,
         requested_fte: Optional[Dict[str, float]] = None,
         existing_fte: Optional[Dict[str, float]] = None,
-        use_demo: bool = False,
+        use_demo: bool = True,
+        api_key: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Executes a full estimation run via /api/py/runs.
 
         Returns (progress_events, final_run_dict).
         """
         url = f"{self.base_url}/api/py/runs"
+
+        # Auto-fallback to demo (rule-based) mode if no API key is configured or no tasks are passed
+        active_api_key = api_key or self.llm_api_key
+        effective_demo = use_demo
+        if not effective_demo and not active_api_key:
+            effective_demo = True
+        elif not tasks and not tasks_csv_or_text:
+            effective_demo = True
 
         # 1. Build role inputs list
         roles = ["DE", "DA", "DS", "AI", "UXR", "UX", "UI"]
@@ -122,13 +136,13 @@ class AIXClient:
                 "extra_headers": {},
                 "structured_method": "auto",
             },
-            "demo": use_demo,
+            "demo": effective_demo,
             "catalog": None,
         }
 
         # 3. Handle files
         files: Dict[str, Any] = {}
-        if not use_demo:
+        if not effective_demo:
             csv_content = ""
             if tasks_csv_or_text:
                 csv_content = tasks_csv_or_text
@@ -158,7 +172,7 @@ class AIXClient:
                 url,
                 data=data,
                 files=files if files else None,
-                headers=self._get_headers(),
+                headers=self._get_headers(active_api_key),
             ) as response:
                 if response.status_code != 200:
                     body = await response.aread()
